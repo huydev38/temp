@@ -1,0 +1,25 @@
+value="192.168.1.3"
+
+# Kiểm tra NTP bằng ntpdate -q
+ntp_output=$(ntpdate -q "$value" 2>/dev/null)
+
+if [ $? -eq 0 ]; then
+    # Lấy thời gian lệch từ kết quả của ntpdate
+    offset=$(echo "$ntp_output" | grep -oP 'offset \K[-+]?[0-9]*\.?[0-9]+' | head -n 1)
+
+    if [ -n "$offset" ]; then
+        echo "Time offset with $value: $offset seconds"
+
+        # Nếu lệch quá 1 giây, thực hiện đồng bộ
+        if (( $(echo "$offset > 1" | bc -l) )); then
+            echo "Time offset is greater than 1 second. Synchronizing time..."
+            sudo ntpdate "$value"
+        else
+            echo "Time offset is within acceptable range."
+        fi
+    else
+        echo "Could not determine time offset."
+    fi
+else
+    echo "NTP check for $value failed."
+fi
