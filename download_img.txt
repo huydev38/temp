@@ -1,0 +1,33 @@
+#!/bin/bash
+
+# Đường dẫn thư mục lưu file tar.gz
+output_dir="./docker_images"
+mkdir -p "$output_dir"
+
+# Đọc danh sách Docker images từ tệp images.txt
+while IFS= read -r image; do
+    # Nếu tên image không có tag, gán tag mặc định là 'latest'
+    image_name="${image%%:*}"
+    image_tag="${image##*:}"
+
+    if [ "$image_name" == "$image_tag" ]; then
+        image_tag="latest"
+    fi
+
+    # Pull image từ Docker registry
+    echo "Pulling $image_name:$image_tag..."
+    docker pull "$image_name:$image_tag"
+
+    # Tag image với tag mới (nếu cần thiết)
+    echo "Tagging $image_name:$image_tag as $image_name:$image_tag"
+    docker tag "$image_name:$image_tag" "$image_name:$image_tag"
+
+    # Lưu image thành file tar.gz vào thư mục output
+    echo "Saving image $image_name:$image_tag to tar.gz..."
+    docker save "$image_name:$image_tag" | gzip > "$output_dir/$image_name-$image_tag.tar.gz"
+
+    echo "$image_name:$image_tag saved successfully!"
+
+done < "images.txt"
+
+echo "All images have been pulled and saved."
