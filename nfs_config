@@ -1,0 +1,184 @@
+Để tạo một **NFS server**, sau đó tạo **StorageClass** trong Kubernetes và tạo **PersistentVolumeClaim (PVC)** dựa trên **StorageClass** đó, bạn có thể làm theo các bước sau:
+
+### 1. **Cài đặt NFS Server**
+
+Trước tiên, bạn cần một NFS server để chia sẻ thư mục từ máy chủ ra cho các pod trong Kubernetes.
+
+#### a. Cài đặt NFS Server trên một máy Linux:
+```bash
+sudo apt update
+sudo apt install nfs-kernel-server -y
+```
+
+#### b. Tạo thư mục cần chia sẻ (Ví dụ: `/export/nfs_share`):
+```bash
+sudo mkdir -p /export/nfs_share
+sudo chown nobody:nogroup /export/nfs_share
+```
+
+#### c. Cấu hình NFS để chia sẻ thư mục:
+Mở file cấu hình `/etc/exports` và thêm dòng sau:
+```
+/export/nfs_share  *(rw,sync,no_subtree_check)
+```
+
+- `rw`: Cho phép đọc và ghi.
+- `sync`: Dữ liệu được ghi đồng bộ.
+- `no_subtree_check`: Đảm bảo rằng NFS không kiểm tra cây thư mục con khi chia sẻ thư mục.
+
+#### d. Áp dụng cấu hình và khởi động lại dịch vụ NFS:
+```bash
+sudo exportfs -a
+sudo systemctl restart nfs-kernel-server
+```
+
+#### e. Kiểm tra xem NFS server có hoạt động không:
+```bash
+sudo systemctl status nfs-kernel-server
+```
+
+#### f. Cấp quyền truy cập cho client Kubernetes:
+Đảm bảo rằng máy Kubernetes có thể truy cập vào NFS server và có quyền đọc/ghi vào thư mục chia sẻ. Bạn có thể điều chỉnh quyền thư mục chia sẻ nếu cần:
+```bash
+sudo chmod 777 /export/nfs_share
+```
+
+### 2. **Tạo PersistentVolume (PV) và PersistentVolumeClaim (PVC) trong Kubernetes**
+
+#### a. Tạo một PersistentVolume (PV) sử dụng NFS:
+
+**PersistentVolume** sẽ trỏ tới thư mục chia sẻ NFS mà bạn đã tạo ở bước trên.
+
+Tạo một file YAML (ví dụ: `nfs-pv.yaml`) như sau:
+
+```yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: nfs-pv
+spec:
+  capacity:
+    storage: 5Gi  # Kích thước lưu trữ
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteMany  # Cho phép nhiều pod đọc và ghi
+  persistentVolumeReclaimPolicy: Retain  # Chọn cách giữ PV khi PVC bị xóa
+  storageClassName: nfs-storage-class  # Tên StorageClass (sẽ tạo ở bước tiếp theo)
+  nfs:
+    path: /export/nfs_share  # Đường dẫn thư mục chia sẻ trên NFS server
+    server: <NFS_SERVER_IP>  # Địa chỉ IP của NFS server
+```
+
+Sau đó áp dụng để tạo PersistentVolume:
+
+```bash
+kubectl apply -f nfs-pv.yaml
+```
+
+#### b. Tạo StorageClass cho NFS:
+
+Tạo một file YAML (ví dụ: `nfs-storage-class.yaml`) để tạo một **StorageClass**. StorageClass giúp bạn chỉ định cách lưu trữ trong Kubernetes, và sẽ được sử dụng bởi PVC để yêu cầu tài nguyên từ PV.
+
+```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs-storage-class
+provisioner: k8s.io/minikube-hostpath  # Dùng k8s.io/minikube-hostpath cho NFS (nếu sử dụng NFS trên Minikube)
+reclaimPolicy: Retain
+volumeBindingMode: Immediate
+```
+
+Sau đó, áp dụng StorageClass:
+
+```bash
+kubectl apply -f nfs-storage-class.yaml
+```
+
+#### c. Tạo PersistentVolumeClaim (PVC):
+
+**PVC** cho phép bạn yêu cầu tài nguyên lưu trữ từ **PersistentVolume** đã được cấu hình. PVC sẽ sử dụng **StorageClass** mà bạn vừa tạo.
+
+Tạo một file YAML (ví dụ: `nfs-pvc.yaml`) như sau:
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nfs-pvc
+spec:
+  accessModes:
+    - ReadWriteMany  # Pod có thể đọc và ghi
+  storageClassName: nfs-storage-class  # Sử dụng StorageClass mà bạn đã tạo ở trên
+  resources:
+    requests:
+      storage: 5Gi  # Yêu cầu lưu trữ 5Gi từ PV
+```
+
+Sau đó áp dụng PVC:
+
+```bash
+kubectl apply -f nfs-pvc.yaml
+```
+
+#### d. Kiểm tra PVC và PV:
+
+Bạn có thể kiểm tra các PersistentVolume (PV) và PersistentVolumeClaim (PVC) của mình đã được tạo thành công bằng cách sử dụng các lệnh sau:
+
+```bash
+kubectl get pv
+kubectl get pvc
+```
+
+### 3. **Tạo Pod sử dụng PVC**
+
+Cuối cùng, bạn có thể tạo một pod sử dụng PVC mà bạn vừa tạo. Tạo một file YAML cho pod (ví dụ: `nfs-pod.yaml`) như sau:
+
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nfs-pod
+spec:
+  containers:
+    - name: nginx
+      image: nginx
+      volumeMounts:
+        - mountPath: /usr/share/nginx/html
+          name: nfs-volume
+  volumes:
+    - name: nfs-volume
+      persistentVolumeClaim:
+        claimName: nfs-pvc  # PVC mà bạn đã tạo trước đó
+```
+
+Sau đó, áp dụng để tạo pod:
+
+```bash
+kubectl apply -f nfs-pod.yaml
+```
+
+### 4. **Kiểm tra Pod**
+
+Sau khi pod được tạo, bạn có thể kiểm tra pod của mình đã chạy thành công chưa:
+
+```bash
+kubectl get pods
+```
+
+Để kiểm tra dữ liệu trên NFS, bạn có thể exec vào trong pod và kiểm tra thư mục đã được mount từ NFS:
+
+```bash
+kubectl exec -it nfs-pod -- /bin/bash
+ls /usr/share/nginx/html
+```
+
+### Tổng kết
+
+- **Bước 1**: Cài đặt và cấu hình NFS server.
+- **Bước 2**: Tạo PersistentVolume (PV) trong Kubernetes để trỏ tới thư mục chia sẻ của NFS server.
+- **Bước 3**: Tạo StorageClass để sử dụng cho PVC.
+- **Bước 4**: Tạo PersistentVolumeClaim (PVC) yêu cầu tài nguyên từ PV.
+- **Bước 5**: Tạo Pod sử dụng PVC đó.
+
+Sau khi thực hiện đầy đủ các bước này, bạn sẽ có một hệ thống lưu trữ chia sẻ (NFS) trong Kubernetes mà các pod có thể sử dụng.
