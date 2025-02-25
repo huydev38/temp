@@ -1,0 +1,76 @@
+**StorageClass** và **PersistentVolume (PV)** là hai khái niệm khác nhau trong Kubernetes, và chúng có các vai trò khác nhau trong việc quản lý lưu trữ. Để giải thích rõ ràng hơn, mình sẽ làm rõ mục đích và cách sử dụng của chúng.
+
+### 1. **StorageClass là gì?**
+**StorageClass** trong Kubernetes là một cách để định nghĩa các đặc tính của lưu trữ mà bạn muốn sử dụng cho các ứng dụng trong cụm Kubernetes. Nó cung cấp một cách để xác định **các tính năng lưu trữ** như tốc độ, kiểu lưu trữ (NFS, EBS, GlusterFS, v.v.), hoặc các thuộc tính khác liên quan đến lưu trữ.
+
+**StorageClass** không phải là một loại tài nguyên lưu trữ cụ thể, mà là một **chỉ dẫn** cho Kubernetes biết phải sử dụng loại lưu trữ nào, và cách thức cấp phát lưu trữ đó.
+
+### 2. **Tại sao cần StorageClass?**
+Khi bạn tạo một **PersistentVolumeClaim (PVC)**, bạn có thể chỉ định một **StorageClassName** để yêu cầu loại lưu trữ cụ thể. Nếu bạn không chỉ định **StorageClass**, Kubernetes sẽ sử dụng **StorageClass mặc định** (nếu có) để quyết định loại lưu trữ.
+
+Ví dụ:
+- **StorageClass** có thể xác định loại lưu trữ bạn muốn sử dụng, ví dụ như `standard` cho EBS, `fast` cho SSD, hoặc `nfs-storage` cho NFS.
+- **StorageClass** cho phép bạn tạo các PV động (dynamic provisioning), giúp Kubernetes tự động tạo và cấu hình PV khi một PVC yêu cầu.
+
+### 3. **Cần StorageClass và PV không?**
+Trong trường hợp bạn **sử dụng Dynamic Provisioning**, bạn không cần phải tạo trước **PersistentVolume (PV)** vì Kubernetes sẽ tự động tạo PV dựa trên thông tin trong **StorageClass**.
+
+Tuy nhiên, nếu bạn muốn **sử dụng PV tĩnh** (static provisioning), thì bạn cần tạo trước **PV** và PVC sẽ sử dụng **StorageClass** để liên kết với một PV đã tồn tại.
+
+#### **Tóm tắt**:
+- **StorageClass** dùng để định nghĩa loại và thuộc tính lưu trữ cho PVC.
+- **PersistentVolume (PV)** là một đối tượng lưu trữ cụ thể được cấp phát trong Kubernetes.
+- Nếu sử dụng **Dynamic Provisioning**, bạn **không cần phải tạo PV trước**, Kubernetes sẽ tự động tạo PV từ **StorageClass**.
+
+### 4. **Cách StorageClass và PVC hoạt động cùng nhau**
+1. **Dynamic Provisioning**:
+   - Khi bạn tạo một **PersistentVolumeClaim (PVC)** và chỉ định một **StorageClassName**, Kubernetes sẽ tìm **StorageClass** tương ứng và sử dụng nó để tự động cấp phát một **PersistentVolume (PV)**.
+   - PV được cấp phát này sẽ tự động liên kết với PVC và sau đó có thể được gắn vào các pod của bạn.
+
+2. **Static Provisioning**:
+   - Nếu bạn tạo một **PersistentVolume (PV)** thủ công, bạn cũng có thể chỉ định một **StorageClassName** trong PV.
+   - Sau đó, bạn tạo một **PersistentVolumeClaim (PVC)** và chỉ định **StorageClassName** để yêu cầu PV tương ứng.
+
+### 5. **Ví dụ về StorageClass**
+
+Giả sử bạn muốn tạo một **StorageClass** cho việc sử dụng **NFS**. Bạn có thể tạo một file YAML để định nghĩa StorageClass như sau:
+
+```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs-storage-class
+provisioner: k8s.io/minikube-hostpath  # Dùng provisioner của NFS hoặc cách khác nếu cần
+reclaimPolicy: Retain  # Chính sách khi PVC bị xóa
+volumeBindingMode: Immediate  # Immediate binding: PVC được liên kết ngay khi được tạo
+```
+
+Sau khi áp dụng StorageClass này, bạn có thể tạo một PVC yêu cầu **nfs-storage-class** như sau:
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nfs-pvc
+spec:
+  accessModes:
+    - ReadWriteMany  # PVC yêu cầu lưu trữ có thể đọc/ghi nhiều lần
+  storageClassName: nfs-storage-class  # Sử dụng StorageClass nfs-storage-class
+  resources:
+    requests:
+      storage: 5Gi  # Yêu cầu 5Gi lưu trữ
+```
+
+Kubernetes sẽ tự động tạo PV phù hợp với yêu cầu PVC nếu **Dynamic Provisioning** được kích hoạt, hoặc nếu sử dụng **Static Provisioning**, bạn sẽ phải tạo PV trước và chỉ định StorageClass trong PV và PVC.
+
+### 6. **Các trường hợp sử dụng StorageClass**
+
+- **Dynamic Provisioning**: Tự động tạo PersistentVolume khi PVC được tạo ra. Kubernetes sẽ sử dụng **StorageClass** để quyết định cách thức cấp phát PV.
+- **Static Provisioning**: Bạn tạo PersistentVolume trước, sau đó sử dụng PVC để yêu cầu tài nguyên từ PV đã tạo. **StorageClass** giúp chỉ định loại lưu trữ trong PV và PVC.
+
+### Tổng kết:
+- **StorageClass** giúp bạn quản lý các loại lưu trữ trong Kubernetes và có thể dùng để **dynamically provision** PersistentVolume khi yêu cầu từ PVC.
+- Nếu bạn sử dụng **dynamic provisioning**, bạn không cần phải tạo PV trước, vì Kubernetes sẽ tự động tạo PV từ StorageClass khi cần.
+- **PersistentVolume (PV)** là tài nguyên lưu trữ thực tế, có thể được tạo thủ công (static provisioning) hoặc tự động (dynamic provisioning) từ StorageClass.
+
+Hy vọng thông tin trên giúp bạn hiểu rõ hơn về **StorageClass** và cách nó hoạt động trong Kubernetes!
