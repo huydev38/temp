@@ -1,0 +1,187 @@
+Để triển khai **High Availability (HA)** cho **NFS Server** với 3 node, bạn cần cấu hình một hệ thống đảm bảo rằng nếu một node bị lỗi, các node còn lại vẫn có thể cung cấp dịch vụ NFS mà không gián đoạn. Cách thực hiện phổ biến nhất là sử dụng **DRBD** (Distributed Replicated Block Device) kết hợp với **Pacemaker** và **Corosync** để quản lý các tài nguyên và đảm bảo tính sẵn sàng cao.
+
+### **Cấu hình HA cho NFS với 3 node sử dụng Pacemaker, Corosync và DRBD**
+
+Dưới đây là hướng dẫn chi tiết để thiết lập HA cho NFS Server với 3 node:
+
+### **1. Chuẩn bị môi trường**
+
+Giả sử bạn có 3 máy chủ NFS với tên:
+- `node1`: IP `192.168.1.1`
+- `node2`: IP `192.168.1.2`
+- `node3`: IP `192.168.1.3`
+
+Cả ba node cần được cài đặt hệ điều hành Ubuntu và các công cụ hỗ trợ quản lý HA.
+
+### **2. Cài đặt các gói cần thiết**
+
+#### **Cài đặt Pacemaker, Corosync và DRBD trên tất cả các node**
+
+Trên tất cả các node (node1, node2, node3), cài đặt các gói sau:
+
+```bash
+sudo apt update
+sudo apt install pacemaker corosync crmsh drbd-utils nfs-kernel-server
+```
+
+- **Pacemaker**: Quản lý các tài nguyên của hệ thống.
+- **Corosync**: Quản lý cluster communication.
+- **DRBD**: Replication storage cho NFS.
+
+### **3. Cấu hình DRBD**
+
+DRBD (Distributed Replicated Block Device) sẽ tạo một thiết bị ổ đĩa ảo mà dữ liệu sẽ được sao chép giữa các node. Điều này đảm bảo rằng dữ liệu trên NFS được sao chép giữa các node, giúp đảm bảo tính sẵn sàng.
+
+#### **Tạo DRBD cho NFS**
+
+Trên mỗi node, tạo một partition hoặc sử dụng một ổ đĩa riêng biệt để sử dụng với DRBD.
+
+Ví dụ, bạn tạo một partition `/dev/sdb` trên mỗi node để sử dụng với DRBD. Trên mỗi node, thực hiện:
+
+```bash
+sudo drbdadm create-md r0
+sudo drbdadm up r0
+```
+
+Tạo tệp cấu hình DRBD cho thiết bị sao chép. Tạo file `/etc/drbd.d/r0.res` và cấu hình như sau:
+
+```bash
+resource r0 {
+  on node1 {
+    device /dev/drbd0;
+    disk /dev/sdb;
+    address 192.168.1.1:7789;
+    meta-disk internal;
+  }
+  on node2 {
+    device /dev/drbd0;
+    disk /dev/sdb;
+    address 192.168.1.2:7789;
+    meta-disk internal;
+  }
+  on node3 {
+    device /dev/drbd0;
+    disk /dev/sdb;
+    address 192.168.1.3:7789;
+    meta-disk internal;
+  }
+}
+```
+
+Lệnh này sẽ thiết lập một thiết bị DRBD `r0` giữa 3 node.
+
+#### **Khởi động DRBD**
+
+Trên mỗi node, chạy các lệnh sau để khởi động DRBD:
+
+```bash
+sudo drbdadm up r0
+```
+
+Sau đó, trên **node1** (là node primary), chạy:
+
+```bash
+sudo drbdadm primary --force r0
+```
+
+Còn trên các node khác (node2 và node3), chạy:
+
+```bash
+sudo drbdadm secondary r0
+```
+
+Kết nối các node sẽ tạo một thiết bị DRBD mới (ví dụ `/dev/drbd0`).
+
+### **4. Cài đặt NFS Server trên DRBD**
+
+Giờ đây, bạn có thể tạo một thư mục chia sẻ NFS trên thiết bị DRBD. Trên **node1**, tạo thư mục chia sẻ:
+
+```bash
+sudo mkdir -p /mnt/nfs
+sudo mount /dev/drbd0 /mnt/nfs
+```
+
+Sau đó, chỉnh sửa file cấu hình `/etc/exports` để chia sẻ thư mục này:
+
+```bash
+/srv/nfs *(rw,sync,no_subtree_check)
+```
+
+### **5. Cài đặt và cấu hình Pacemaker và Corosync**
+
+#### **Cấu hình Corosync và Pacemaker**
+
+Trên mỗi node, cấu hình **Corosync** để các node có thể giao tiếp với nhau trong cluster.
+
+Mở tệp cấu hình của **Corosync** (`/etc/corosync/corosync.conf`) và chỉnh sửa sao cho tương thích với các node trong cluster:
+
+```bash
+totem {
+  version: 2
+  secauth: off
+  cluster_name: nfs-cluster
+  transport: udpu
+}
+
+nodelist {
+  node {
+    ring0_addr: 192.168.1.1
+    nodeid: 1
+  }
+  node {
+    ring0_addr: 192.168.1.2
+    nodeid: 2
+  }
+  node {
+    ring0_addr: 192.168.1.3
+    nodeid: 3
+  }
+}
+```
+
+Khởi động lại Corosync trên tất cả các node:
+
+```bash
+sudo systemctl restart corosync
+```
+
+#### **Cấu hình Pacemaker**
+
+Sau khi Corosync đã được cấu hình, bạn có thể cấu hình **Pacemaker** để quản lý các tài nguyên của NFS.
+
+Trên bất kỳ node nào trong cluster, chạy:
+
+```bash
+sudo crm configure
+```
+
+Tạo tài nguyên cho **NFS** và **DRBD**:
+
+```bash
+crm configure primitive drbd_r0 ocf:linbit:drbd params drbd_resource=r0 op monitor interval=30s
+crm configure primitive nfsd_fs ocf:heartbeat:nfsserver op monitor interval=10s
+crm configure primitive nfs_export ocf:heartbeat:nfsexport params directory=/mnt/nfs clients="*" options="rw,sync,no_subtree_check"
+crm configure group nfs_resources drbd_r0 nfsd_fs nfs_export
+crm configure clone drbd_r0-clone drbd_r0
+```
+
+Cấu hình tài nguyên DRBD và NFS để có thể chạy ở chế độ HA (High Availability).
+
+### **6. Kiểm tra cấu hình và chạy**
+
+Khi tất cả các bước cấu hình hoàn tất, bạn có thể kiểm tra trạng thái của cluster và các tài nguyên Pacemaker:
+
+```bash
+sudo crm status
+```
+
+Hệ thống sẽ cung cấp thông tin về trạng thái của cluster và tài nguyên, và bạn có thể kiểm tra nếu có sự thay đổi của tài nguyên NFS khi một node bị hỏng.
+
+### **Tóm lại:**
+
+1. **Cài đặt các công cụ**: Pacemaker, Corosync, DRBD và NFS.
+2. **Cấu hình DRBD** để sao chép dữ liệu giữa các node.
+3. **Cài đặt NFS server** và chia sẻ thư mục qua DRBD.
+4. **Cấu hình HA với Pacemaker và Corosync** để quản lý các tài nguyên NFS.
+
+Kết quả cuối cùng là hệ thống NFS có khả năng chịu lỗi (HA), đảm bảo rằng nếu một node gặp sự cố, các node còn lại vẫn có thể cung cấp dịch vụ mà không bị gián đoạn.

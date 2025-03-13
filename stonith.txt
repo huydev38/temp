@@ -1,0 +1,81 @@
+**STONITH (Shoot The Other Node In The Head)** là một cơ chế quan trọng trong các hệ thống **High Availability (HA)**, giúp ngăn ngừa tình huống **split-brain** trong các cluster. STONITH đảm bảo rằng khi một node không thể giao tiếp với các node khác (do sự cố mạng hoặc các vấn đề phần cứng), nó sẽ bị **"tắt"** (shutdown) hoặc ngừng hoạt động để tránh việc 2 node cùng truy cập vào tài nguyên, gây mất dữ liệu.
+
+Khi bạn sử dụng **VMware vSphere** (với các máy ảo chạy trên vCenter Server), bạn có thể sử dụng **vSphere** như một phương thức **STONITH** để quản lý **power fencing**. Điều này có nghĩa là bạn sẽ sử dụng tính năng **vCenter** để tắt hoặc khởi động lại máy ảo khi cần thiết để ngăn ngừa split-brain.
+
+### **Cách cấu hình STONITH với vSphere (VMware)**
+
+Để cấu hình STONITH cho **VMware vSphere** trong **Pacemaker**, bạn cần một **vSphere API** hoặc một công cụ hỗ trợ STONITH như **"STONITH:vmware"** trong Pacemaker. Phần mềm này sẽ cho phép Pacemaker gọi API của vCenter để thao tác với các máy ảo (VM), chẳng hạn như tắt hoặc khởi động lại một VM khi cần thiết.
+
+#### **Các bước cấu hình STONITH với vSphere**
+
+1. **Cài đặt VMware STONITH Plugin**:
+   Trước tiên, bạn cần cài đặt plugin STONITH cho Pacemaker. Cụ thể, gói **STONITH:vmware** sẽ sử dụng **VMware vSphere API** để thực hiện thao tác với các máy ảo.
+
+   Để cài đặt, sử dụng các lệnh sau (trên hệ thống đang chạy Pacemaker):
+
+   ```bash
+   sudo apt-get install pacemaker crmsh stonith
+   ```
+
+   **Lưu ý:** Bạn cần phải có **VMware vSphere** (vCenter) được cấu hình và truy cập từ máy đang chạy Pacemaker.
+
+2. **Cấu hình STONITH với VMware**:
+   Sau khi cài đặt xong, bạn sẽ cấu hình STONITH với VMware. Để làm điều này, bạn cần chỉ định các tham số như vCenter Server, username, và password để Pacemaker có thể giao tiếp với vSphere API.
+
+   Ví dụ, nếu bạn muốn sử dụng **STONITH với VMware** để tắt một máy ảo (VM) trên vCenter, bạn có thể cấu hình STONITH như sau:
+
+   ```bash
+   sudo crm configure primitive stonith-vmware stonith:vmware \
+       params vcenter_host='vcenter.example.com' \
+              vcenter_user='your_user' \
+              vcenter_password='your_password' \
+              vm_name='vm_name' \
+              op monitor interval=60s
+   ```
+
+   **Giải thích các tham số**:
+   - `vcenter_host`: Địa chỉ IP hoặc hostname của vCenter Server.
+   - `vcenter_user`: Tên người dùng để đăng nhập vào vCenter.
+   - `vcenter_password`: Mật khẩu của người dùng trên vCenter.
+   - `vm_name`: Tên của máy ảo (VM) mà bạn muốn quản lý thông qua STONITH.
+
+3. **Xác thực STONITH trên Pacemaker**:
+   Sau khi cấu hình STONITH, bạn có thể kiểm tra xem nó có hoạt động đúng không bằng cách sử dụng lệnh sau:
+
+   ```bash
+   sudo crm status
+   ```
+
+   Kiểm tra trạng thái của STONITH và đảm bảo rằng các node trong cluster đang hoạt động bình thường.
+
+4. **Cấu hình Pacemaker Fencing**:
+   Sau khi cấu hình STONITH, bạn có thể thêm STONITH vào quy trình fencing của Pacemaker. Điều này giúp Pacemaker có thể tự động "bắt chết" (fence) các máy ảo khi phát hiện một node bị cô lập (split-brain) hoặc không còn liên lạc được.
+
+   Ví dụ, bạn có thể thêm một node vào Pacemaker để sử dụng STONITH như sau:
+
+   ```bash
+   sudo crm configure property stonith-enabled=true
+   sudo crm configure primitive stonith-vmware stonith:vmware \
+       params vcenter_host='vcenter.example.com' \
+              vcenter_user='your_user' \
+              vcenter_password='your_password' \
+              vm_name='vm_name' \
+              op monitor interval=60s
+   ```
+
+5. **Kiểm tra và quản lý STONITH**:
+   Để kiểm tra hoạt động của STONITH, bạn có thể sử dụng các lệnh của Pacemaker để đảm bảo rằng các node trong cluster được bảo vệ đúng cách:
+
+   ```bash
+   sudo crm status
+   ```
+
+   Kiểm tra tình trạng của các máy ảo và đảm bảo rằng các thao tác STONITH (tắt máy ảo, khởi động lại) đang hoạt động chính xác.
+
+### **Tóm lại**
+
+- **STONITH:vmware** là một plugin STONITH trong Pacemaker cho phép bạn sử dụng **VMware vSphere API** để quản lý máy ảo (VM) như là một phương thức fencing trong môi trường vSphere.
+- Cấu hình **STONITH với VMware** cho phép Pacemaker sử dụng **power fencing** để bảo vệ các máy ảo khỏi tình trạng split-brain, tắt hoặc khởi động lại VM khi cần thiết.
+- Đảm bảo bạn đã có quyền truy cập và cấu hình vSphere API đúng cách để cho phép Pacemaker tương tác với vCenter Server và thực hiện các thao tác trên các máy ảo.
+
+Bằng cách này, bạn có thể đảm bảo rằng khi một node trong cluster bị cô lập, Pacemaker có thể tự động sử dụng **STONITH** để "tắt" (shutdown) máy ảo và ngăn ngừa các sự cố về split-brain.
