@@ -1,0 +1,43 @@
+Cấu hình Virtual IP cho dịch vụ
+Dưới đây là cách bạn có thể cấu hình Virtual IP trong Pacemaker cho dịch vụ NFS:
+
+1. Tạo tài nguyên Virtual IP
+Giả sử bạn muốn tạo một VIP là 192.168.1.100 (có thể thay đổi theo mạng của bạn). Bạn có thể cấu hình như sau:
+
+bash
+Copy
+sudo crm configure primitive vip ocf:heartbeat:IPaddr2 \
+    params ip="192.168.1.100" cidr_netmask="24" \
+    op monitor interval="30s"
+Giải thích:
+
+ip="192.168.1.100": Đây là địa chỉ IP mà bạn muốn sử dụng làm Virtual IP.
+cidr_netmask="24": Mặt nạ mạng con (subnet mask), trong trường hợp này là 255.255.255.0 (CIDR /24).
+op monitor interval="30s": Cấu hình giám sát tài nguyên này mỗi 30 giây.
+2. Gán VIP cho nhóm tài nguyên NFS
+Tiếp theo, bạn cần gán tài nguyên VIP cho nhóm tài nguyên NFS (để đảm bảo rằng khi dịch vụ NFS chuyển sang một node mới, VIP sẽ chuyển theo):
+
+bash
+Copy
+sudo crm configure group nfs_resources drbd_r0 nfsd_fs nfs_export vip
+Trong cấu hình trên:
+
+nfs_resources là nhóm tài nguyên của bạn, bao gồm các tài nguyên như DRBD, NFS server và các thư mục chia sẻ NFS.
+vip là tài nguyên Virtual IP mà bạn đã tạo.
+3. Cấu hình tài nguyên Clone cho DRBD và NFS
+Bạn có thể clone tài nguyên DRBD và NFS để đảm bảo chúng luôn hoạt động trên một trong các node trong cluster:
+
+bash
+Copy
+sudo crm configure clone drbd_r0-clone drbd_r0
+sudo crm configure clone nfsd_fs-clone nfsd_fs
+sudo crm configure clone nfs_export-clone nfs_export
+Điều này sẽ đảm bảo rằng khi một node trong cluster gặp sự cố, tài nguyên DRBD và NFS sẽ được chuyển đến một node khác trong cluster, và VIP sẽ được chuyển đến node này.
+
+4. Kiểm tra cấu hình
+Sau khi cấu hình xong, bạn có thể kiểm tra trạng thái của cluster:
+
+bash
+Copy
+sudo crm status
+Điều này sẽ hiển thị thông tin về các tài nguyên và xác nhận rằng VIP đã được gán cho một trong các node trong cluster. Các client giờ đây sẽ kết nối tới VIP này (ví dụ, 192.168.1.100) thay vì kết nối trực tiếp đến các địa chỉ IP của các node.
