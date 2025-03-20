@@ -1,0 +1,11 @@
+Để tăng khả năng HA cho cụm, đạt lv5, cần thêm HA theo khu vực địa lý. Thay vì chỉ có một datacenter tại một điểm, có thể replicate dữ liệu, đặt tại nhiều điểm và sử dụng các cơ chế để điều hướng traffic.
+Tăng khả năng HA khi một cụm máy vật lý lỗi
+Tăng tốc độ xử lý yêu cầu vì rút ngắn khoảng cách địa lý giữa server và client
+Cải thiện khả năng xử lý song song cho client 
+
+Để thực hiện routing, sử dụng GSLB (Global Server Load Balancer)
+
+Sử dụng DNS là một trong các cách đơn giản để thực hiện routing tới các datacenter. Techstack PolarisDNS, K8GB
+
+Có thể sử dụng một Load Balancer để điều hướng
+Sử dụng Multi Cluster Ingress
